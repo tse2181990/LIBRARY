@@ -212,7 +212,9 @@ function resetBookForm() {
     document.getElementById('add-serial').disabled = false;
 }
 
-// --- ISSUE & RETURN LOGIC ---
+// --- ISSUE & RETURN LOGIC (FIXED) ---
+
+// 借出时：同时更新 books 表和 issued_items 表
 async function populateIssueSelect() {
     const { data: avail } = await _supabase.from('books').select('*').eq('issued', false);
     const select = document.getElementById('issue-book-select');
@@ -220,80 +222,190 @@ async function populateIssueSelect() {
         select.innerHTML = '<option value="">No items available</option>';
         return;
     }
-    select.innerHTML = avail.map(b => `<option value="${b.serial}">${b.title}</option>`).join('');
-    document.getElementById('issue-date').value = new Date(Date.now() + 12096e5).toISOString().split('T')[0];
+    select.innerHTML = avail.map(b => `<option value="${b.serial}">${b.title} (${b.serial})</option>`).join('');
+    // 默认借出日期为今天 + 14 天
+    const defaultDue = new Date();
+    defaultDue.setDate(defaultDue.getDate() + 14);
+    document.getElementById('issue-date').value = defaultDue.toISOString().split('T')[0];
 }
 
 async function handleIssue() {
     const serial = document.getElementById('issue-book-select').value;
-    if (!serial) return alert("No books available");
+    if (!serial) return alert("Please select an item to issue");
     
-    const { data: book } = await _supabase.from('books').select('title').eq('serial', serial).single();
     const dueDate = document.getElementById('issue-date').value;
-
-    await _supabase.from('books').update({ issued: true }).eq('serial', serial);
-    await _supabase.from('issued_items').insert([{ serial, title: book.title, due_date: dueDate }]);
+    if (!dueDate) return alert("Please select a due date");
     
-    alert("Book Issued!");
+    // 获取书籍信息
+    const { data: book, error: bookError } = await _supabase
+        .from('books')
+        .select('title')
+        .eq('serial', serial)
+        .single();
+    
+    if (bookError || !book) return alert("Book not found");
+    
+    // 1. 更新 books 表为已借出
+    const { error: updateError } = await _supabase
+        .from('books')
+        .update({ issued: true })
+        .eq('serial', serial);
+    
+    if (updateError) return alert("Failed to update book status: " + updateError.message);
+    
+    // 2. 插入借阅记录到 issued_items 表
+    const { error: insertError } = await _supabase
+        .from('issued_items')
+        .insert([{ 
+            serial: serial, 
+            title: book.title, 
+            due_date: dueDate,
+            issued_date: new Date().toISOString().split('T')[0]
+        }]);
+    
+    if (insertError) {
+        // 回滚：如果插入失败，把书籍状态改回未借出
+        await _supabase.from('books').update({ issued: false }).eq('serial', serial);
+        return alert("Failed to issue item: " + insertError.message);
+    }
+    
+    alert(`Item "${book.title}" issued! Due date: ${dueDate}`);
     showSection('search');
 }
 
+// 归还时：从 issued_items 表获取 due_date
 async function populateReturnSelect() {
-    // Query the books table for anything where issued is true
-    const { data: issued, error } = await _supabase.from('books')
-        .select('serial, title')
-        .eq('issued', true);
+    // 从 issued_items 表查询所有未归还的记录（如果有 returned 字段）
+    // 如果没有 returned 字段，就查询所有记录（假设只要在 issued_items 里就是未归还）
+    const { data: issuedItems, error } = await _supabase
+        .from('issued_items')
+        .select('serial, title, due_date');
     
     const select = document.getElementById('return-book-select');
     
-    if (error || !issued || issued.length === 0) {
+    if (error) {
+        console.error("Error fetching issued items:", error);
+        select.innerHTML = '<option value="">Error loading items</option>';
+        return;
+    }
+    
+    if (!issuedItems || issuedItems.length === 0) {
         select.innerHTML = '<option value="">No items currently issued</option>';
     } else {
-        select.innerHTML = issued.map(b => `<option value="${b.serial}">${b.title} (${b.serial})</option>`).join('');
+        select.innerHTML = issuedItems.map(item => 
+            `<option value="${item.serial}" data-due="${item.due_date}">${item.title} (${item.serial}) - Due: ${item.due_date}</option>`
+        ).join('');
     }
     
     document.getElementById('actual-return-date').value = new Date().toISOString().split('T')[0];
     document.getElementById('fine-panel').classList.add('hidden');
+    pendingReturnData = null;
 }
 
 async function calculateReturn() {
-    const serial = document.getElementById('return-book-select').value;
-    if (!serial) return alert("No items to return");
+    const select = document.getElementById('return-book-select');
+    const serial = select.value;
     
-    const { data: item } = await _supabase.from('issued_items').select('*').eq('serial', serial).single();
-
-    const { data: item } = await _supabase
-  .from('issued_items')
-  .select('*')
-  .eq('serial', serial)
-  .single();
-
+    if (!serial) return alert("Please select an item to return");
     
-    let fine = 0;
-    // If record is found, calculate fine. If not, default fine to 0.
-    if (item) {
-        const returnDate = new Date(document.getElementById('actual-return-date').value);
-        const dueDate = new Date(item.due_date);
-        const delay = Math.ceil((returnDate - dueDate) / (1000 * 60 * 60 * 24 ));
-        fine = delay > 0 ? delay * 5 : 0;
-    } else {
-        console.warn("No issue record found for fine calculation. Defaulting to $0.");
+    // 从选中的 option 获取 due_date
+    const selectedOption = select.options[select.selectedIndex];
+    const dueDateStr = selectedOption.getAttribute('data-due');
+    
+    if (!dueDateStr) {
+        console.error("No due date found for this item");
+        document.getElementById('fine-panel').classList.remove('hidden');
+        document.getElementById('fine-amount').innerHTML = `Fine: $0.00 <span class="text-yellow-500 text-xs ml-2">(No due date on record)</span>`;
+        document.getElementById('fine-paid').checked = true;
+        pendingReturnData = { serial, fine: 0 };
+        return;
     }
+    
+    const returnDateStr = document.getElementById('actual-return-date').value;
+    if (!returnDateStr) return alert("Please select the return date");
+    
+    const returnDate = new Date(returnDateStr);
+    const dueDate = new Date(dueDateStr);
+    
+    // 重置时间部分，只比较日期
+    returnDate.setHours(0, 0, 0, 0);
+    dueDate.setHours(0, 0, 0, 0);
+    
+    // 计算延迟天数
+    const diffTime = returnDate - dueDate;
+    const delayDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    
+    // 每天罚款 $5，只有延迟才罚款
+    let fine = delayDays > 0 ? delayDays * 5 : 0;
     
     pendingReturnData = { serial, fine };
     document.getElementById('fine-panel').classList.remove('hidden');
-    document.getElementById('fine-amount').innerText = `Fine: $${fine}.00`;
+    
+    const fineElement = document.getElementById('fine-amount');
+    if (delayDays > 0) {
+        fineElement.innerHTML = `Fine: $${fine}.00 <span class="text-red-500 text-xs ml-2">(${delayDays} days late)</span>`;
+    } else if (delayDays === 0) {
+        fineElement.innerHTML = `Fine: $0.00 <span class="text-green-500 text-xs ml-2">(Returned on due date)</span>`;
+    } else {
+        fineElement.innerHTML = `Fine: $0.00 <span class="text-green-500 text-xs ml-2">(Early return)</span>`;
+    }
+    
     document.getElementById('fine-paid').checked = fine === 0;
 }
 
 async function processReturn() {
+    if (!pendingReturnData) return alert("Please calculate fine first");
+    
     if (pendingReturnData.fine > 0 && !document.getElementById('fine-paid').checked) {
         return alert("Please confirm fine payment first");
     }
     
-    await _supabase.from('books').update({ issued: false }).eq('serial', pendingReturnData.serial);
-    await _supabase.from('issued_items').delete().eq('serial', pendingReturnData.serial);
+    const serial = pendingReturnData.serial;
     
-    alert("Book Returned!");
+    // 1. 更新 books 表为未借出
+    const { error: bookError } = await _supabase
+        .from('books')
+        .update({ issued: false })
+        .eq('serial', serial);
+    
+    if (bookError) {
+        console.error("Error updating book:", bookError);
+        return alert("Failed to update item status: " + bookError.message);
+    }
+    
+    // 2. 从 issued_items 表中删除记录
+    const { error: deleteError } = await _supabase
+        .from('issued_items')
+        .delete()
+        .eq('serial', serial);
+    
+    if (deleteError) {
+        console.error("Error deleting issued record:", deleteError);
+        // 回滚：如果删除失败，把书籍状态改回已借出
+        await _supabase.from('books').update({ issued: true }).eq('serial', serial);
+        return alert("Failed to process return: " + deleteError.message);
+    }
+    
+    // 3. 如果有罚款，记录到 fines 表（可选）
+    if (pendingReturnData.fine > 0) {
+        try {
+            await _supabase.from('fines').insert([{
+                serial: serial,
+                amount: pendingReturnData.fine,
+                paid: document.getElementById('fine-paid').checked,
+                date: new Date().toISOString().split('T')[0]
+            }]);
+        } catch (fineError) {
+            console.warn("Could not save fine record:", fineError);
+        }
+    }
+    
+    alert(`Item returned successfully!${pendingReturnData.fine > 0 ? ` Fine collected: $${pendingReturnData.fine}.00` : ''}`);
+    pendingReturnData = null;
     showSection('search');
+}
+
+// 辅助函数：刷新归还列表（用于页面切换时）
+async function refreshReturnList() {
+    await populateReturnSelect();
 }
