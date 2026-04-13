@@ -267,7 +267,7 @@ async function calculateReturn() {
     if (item) {
         const returnDate = new Date(document.getElementById('actual-return-date').value);
         const dueDate = new Date(item.due_date);
-        const delay = Math.ceil((returnDate - dueDate) / (1000 * 60 * 60 * 24));
+        const delay = Math.ceil((returnDate - dueDate) / (1000 * 60 * 60 ));
         fine = delay > 0 ? delay * 5 : 0;
     } else {
         console.warn("No issue record found for fine calculation. Defaulting to $0.");
