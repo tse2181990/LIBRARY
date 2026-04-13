@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Library Management System</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+    <!-- LOGIN PAGE -->
+    <div id="login-page" class="min-h-screen flex items-center justify-center bg-slate-100 px-4">
+        <div class="max-w-md w-full bg-white rounded-2xl shadow-xl p-8">
+            <div class="text-center mb-8">
+                <div class="text-4xl mb-2">📚</div>
+                <h1 class="text-2xl font-bold text-slate-800">Library Manager Login</h1>
+                <p class="text-slate-500">Access your library account</p>
+            </div>
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Username</label>
+                    <input type="text" id="login-user" class="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Password</label>
+                    <input type="password" id="login-pass" class="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                </div>
+                <button onclick="handleLogin()" class="w-full bg-blue-600 text-white py-2 rounded-lg font-semibold hover:bg-blue-700 transition">Sign In</button>
+            </div>
+            <p class="mt-6 text-center text-xs text-slate-400">Admin: admin / admin123 | User: user / user123</p>
+        </div>
+    </div>
+
+    <!-- MAIN APP -->
+    <div id="main-app" class="hidden min-h-screen flex flex-col md:flex-row">
+        <aside class="w-full md:w-64 bg-white border-r border-slate-200 flex flex-col">
+            <div class="p-6 border-b border-slate-100 flex items-center gap-3">
+                <span class="text-2xl">📖</span>
+                <span class="font-bold text-xl text-slate-800">Library Manager</span>
+            </div>
+            <nav id="nav-menu" class="flex-1 py-4"></nav>
+            <div class="p-4 border-t border-slate-100">
+                <div class="flex items-center gap-3 mb-4 px-2">
+                    <div class="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 font-bold text-xs" id="user-badge">A</div>
+                    <span class="text-sm font-medium text-slate-600" id="user-name">Administrator</span>
+                </div>
+                <button onclick="logout()" class="w-full flex items-center justify-center gap-2 px-4 py-2 text-red-600 hover:bg-red-50 rounded-lg transition">
+                    <span>Logout</span> 🚪
+                </button>
+            </div>
+        </aside>
+
+        <main class="flex-1 p-4 md:p-8 overflow-y-auto">
+            <header class="mb-8">
+                <h2 id="page-title" class="text-3xl font-bold text-slate-800">Dashboard</h2>
+                <p class="text-slate-500">Welcome back to the library system.</p>
+            </header>
+
+            <!-- Section: Inventory/Search -->
+            <section id="section-search" class="section-content">
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                    <div class="p-4 border-b border-slate-100">
+                        <input type="text" id="search-input" onkeyup="renderBookTable()" placeholder="Search by title, author, or serial..." class="w-full md:w-96 px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse">
+                            <thead>
+                                <tr class="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider">
+                                    <th class="px-6 py-3 font-semibold">Type</th>
+                                    <th class="px-6 py-3 font-semibold">Title</th>
+                                    <th class="px-6 py-3 font-semibold">Author</th>
+                                    <th class="px-6 py-3 font-semibold">Serial</th>
+                                    <th class="px-6 py-3 font-semibold">Status</th>
+                                    <th id="th-actions" class="px-6 py-3 font-semibold text-right hidden">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="book-table-body" class="divide-y divide-slate-100"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Section: Issue Item -->
+            <section id="section-issue" class="section-content hidden">
+                <div class="max-w-lg bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-1">Select Available Book</label>
+                            <select id="issue-book-select" class="w-full px-4 py-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500"></select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-1">Return Due Date</label>
+                            <input type="date" id="issue-date" class="w-full px-4 py-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500">
+                        </div>
+                        <button onclick="handleIssue()" class="w-full bg-blue-600 text-white py-2 rounded-lg font-semibold hover:bg-blue-700 transition">Confirm Issue</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Section: Return Item -->
+            <section id="section-return" class="section-content hidden">
+                <div class="max-w-lg bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-1">Select Issued Item</label>
+                            <select id="return-book-select" class="w-full px-4 py-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500"></select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-1">Actual Return Date</label>
+                            <input type="date" id="actual-return-date" class="w-full px-4 py-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500">
+                        </div>
+                        <button onclick="calculateReturn()" class="w-full bg-slate-800 text-white py-2 rounded-lg font-semibold hover:bg-slate-900 transition">Check Status & Fine</button>
+                        
+                        <!-- Fine Panel -->
+                        <div id="fine-panel" class="hidden mt-6 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                            <h4 class="font-bold text-amber-800 mb-1">Fine Assessment</h4>
+                            <p id="fine-amount" class="text-lg font-bold text-amber-900 mb-3">$0.00</p>
+                            <label class="flex items-center gap-2 cursor-pointer">
+                                <input type="checkbox" id="fine-paid" class="w-4 h-4 text-blue-600">
+                                <span class="text-sm text-amber-800">I confirm that any due fine has been paid in full.</span>
+                            </label>
+                            <button onclick="processReturn()" class="w-full mt-4 bg-green-600 text-white py-2 rounded-lg font-semibold hover:bg-green-700 transition">Complete Return</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Section: Add/Edit Item (Admin Only) -->
+            <section id="section-add-book" class="section-content hidden">
+                <div class="max-w-lg bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                    <h3 id="form-title" class="text-lg font-bold mb-4">Add New Inventory Item</h3>
+                    <input type="hidden" id="edit-index" value="-1">
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-1">Category</label>
+                            <select id="add-category" class="w-full px-4 py-2 border border-slate-200 rounded-lg outline-none">
+                                <option>Book</option>
+                                <option>Movie</option>
+                                <option>Journal</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-1">Title</label>
+                            <input type="text" id="add-title" class="w-full px-4 py-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-1">Author / Director</label>
+                            <input type="text" id="add-author" class="w-full px-4 py-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-1">Serial Number (Unique)</label>
+                            <input type="text" id="add-serial" class="w-full px-4 py-2 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500">
+                        </div>
+                        <div class="flex gap-2">
+                            <button id="btn-save" onclick="handleSaveBook()" class="flex-1 bg-blue-600 text-white py-2 rounded-lg font-semibold hover:bg-blue-700 transition">Add to System</button>
+                            <button id="btn-cancel-edit" onclick="showSection('search')" class="hidden flex-1 bg-slate-200 text-slate-700 py-2 rounded-lg font-semibold hover:bg-slate-300 transition">Cancel</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+                <!-- SECTION: MEMBERSHIP -->
+                <section id="section-membership" class="section-content hidden space-y-6">
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        <div class="bg-white p-6 rounded-xl border border-slate-200 shadow-sm h-fit">
+                            <h3 class="font-bold mb-4">Add New Membership</h3>
+                            <div class="space-y-4">
+                                <div>
+                                    <label class="text-xs font-bold uppercase text-slate-500">Member ID (Auto)</label>
+                                    <input type="text" id="mem-id" class="w-full p-2 border rounded-lg bg-slate-50 text-slate-500 outline-none" readonly>
+                                </div>
+                                <div>
+                                    <label class="text-xs font-bold uppercase text-slate-500">Member Name</label>
+                                    <input type="text" id="mem-name" class="w-full p-2 border rounded-lg outline-none" placeholder="John Doe">
+                                </div>
+                                <div>
+                                    <label class="text-xs font-bold uppercase text-slate-500">Plan Duration</label>
+                                    <select id="mem-plan" class="w-full p-2 border rounded-lg outline-none">
+                                        <!-- Populated via JS -->
+                                    </select>
+                                </div>
+                                <button onclick="handleSaveMembership()" class="w-full bg-blue-600 text-white font-bold py-2 rounded-lg hover:bg-blue-700 transition">Add Member</button>
+                            </div>
+                        </div>
+                        <div class="lg:col-span-2 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                            <table class="w-full text-left">
+                                <thead class="bg-slate-50 border-b text-xs uppercase text-slate-500 font-bold">
+                                    <tr>
+                                        <th class="px-6 py-4">ID</th>
+                                        <th class="px-6 py-4">Name</th>
+                                        <th class="px-6 py-4">Plan</th>
+                                        <th class="px-6 py-4 text-right">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="member-table-body" class="divide-y divide-slate-100"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+            
+
+        </main>
+    </div>
+
+    <script src="scripts.js"></script>
+</body>
+</html>
