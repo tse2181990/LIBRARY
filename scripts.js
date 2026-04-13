@@ -1,7 +1,7 @@
 // --- SUPABASE CONFIGURATION ---
-const SUPABASE_URL = 'https://weojhzvotiljokprgqrk.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Indlb2poenZvdGlsam9rcHJncXJrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQzMjQ4MTksImV4cCI6MjA4OTkwMDgxOX0.fT4rBuKYE_q94yoe5gSVa5aQVv2ypgr1LXpcPJIXEE4';
-const _supabase = supabase.createClient(https://ygkjcqqumynudnjgykql.supabase.co, sb_publishable_ePSJo3fudU4ikz0u9kTgxA_QMs9r16z);
+const SUPABASE_URL = 'https://lztfpmbdbseeyujfbcu.j.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx0emZwbWJkZXNlYXl1amZiY3VqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYwOTI4NDgsImV4cCI6MjA5MTY2ODg0OH0.tdzPBwlDPY34eH5VIC5LjHEACWEAoHJTTUwHDdJk_gA';
+const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 const PLAN_OPTIONS = ["6 Months", "1 Year", "2 Years", "Lifetime"];
 
