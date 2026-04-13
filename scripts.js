@@ -1,4 +1,5 @@
 // --- SUPABASE CONFIGURATION ---
+// ⚠️ 请替换成你自己的配置 ⚠️
 const SUPABASE_URL = 'https://lztfpmbdbseeyujfbcu.j.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx0emZwbWJkZXNlYXl1amZiY3VqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYwOTI4NDgsImV4cCI6MjA5MTY2ODg0OH0.tdzPBwlDPY34eH5VIC5LjHEACWEAoHJTTUwHDdJk_gA';
 const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -212,7 +213,7 @@ function resetBookForm() {
     document.getElementById('add-serial').disabled = false;
 }
 
-// --- ISSUE & RETURN LOGIC ---
+// --- ISSUE & RETURN LOGIC (罚款计算完整版) ---
 async function populateIssueSelect() {
     const { data: avail } = await _supabase.from('books').select('*').eq('issued', false);
     const select = document.getElementById('issue-book-select');
@@ -220,28 +221,45 @@ async function populateIssueSelect() {
         select.innerHTML = '<option value="">No items available</option>';
         return;
     }
-    select.innerHTML = avail.map(b => `<option value="${b.serial}">${b.title}</option>`).join('');
-    document.getElementById('issue-date').value = new Date(Date.now() + 12096e5).toISOString().split('T')[0];
+    select.innerHTML = avail.map(b => `<option value="${b.serial}">${b.title} (${b.serial})</option>`).join('');
+    const defaultDue = new Date();
+    defaultDue.setDate(defaultDue.getDate() + 14);
+    document.getElementById('issue-date').value = defaultDue.toISOString().split('T')[0];
 }
 
 async function handleIssue() {
     const serial = document.getElementById('issue-book-select').value;
-    if (!serial) return alert("No books available");
+    if (!serial) return alert("Please select an item to issue");
     
-    const { data: book } = await _supabase.from('books').select('title').eq('serial', serial).single();
     const dueDate = document.getElementById('issue-date').value;
-
-    await _supabase.from('books').update({ issued: true }).eq('serial', serial);
-    await _supabase.from('issued_items').insert([{ serial, title: book.title, due_date: dueDate }]);
+    if (!dueDate) return alert("Please select a due date");
     
-    alert("Book Issued!");
+    const { data: book, error: bookError } = await _supabase
+        .from('books')
+        .select('title')
+        .eq('serial', serial)
+        .single();
+    
+    if (bookError || !book) return alert("Book not found");
+    
+    // 更新 books 表
+    const { error: updateError } = await _supabase
+        .from('books')
+        .update({ issued: true, due_date: dueDate })
+        .eq('serial', serial);
+    
+    if (updateError) {
+        return alert("Failed to issue item: " + updateError.message);
+    }
+    
+    alert(`Item "${book.title}" issued! Due date: ${dueDate}`);
     showSection('search');
 }
 
 async function populateReturnSelect() {
-    // Query the books table for anything where issued is true
-    const { data: issued, error } = await _supabase.from('books')
-        .select('serial, title')
+    const { data: issued, error } = await _supabase
+        .from('books')
+        .select('serial, title, due_date')
         .eq('issued', true);
     
     const select = document.getElementById('return-book-select');
@@ -249,44 +267,81 @@ async function populateReturnSelect() {
     if (error || !issued || issued.length === 0) {
         select.innerHTML = '<option value="">No items currently issued</option>';
     } else {
-        select.innerHTML = issued.map(b => `<option value="${b.serial}">${b.title} (${b.serial})</option>`).join('');
+        select.innerHTML = issued.map(b => 
+            `<option value="${b.serial}" data-due="${b.due_date || ''}">${b.title} (${b.serial}) - Due: ${b.due_date || 'No date'}</option>`
+        ).join('');
     }
     
     document.getElementById('actual-return-date').value = new Date().toISOString().split('T')[0];
     document.getElementById('fine-panel').classList.add('hidden');
+    pendingReturnData = null;
 }
 
 async function calculateReturn() {
-    const serial = document.getElementById('return-book-select').value;
-    if (!serial) return alert("No items to return");
+    const select = document.getElementById('return-book-select');
+    const serial = select.value;
     
-    const { data: item } = await _supabase.from('issued_items').select('*').eq('serial', serial).single();
+    if (!serial) return alert("Please select an item to return");
     
-    let fine = 0;
-    // If record is found, calculate fine. If not, default fine to 0.
-    if (item) {
-        const returnDate = new Date(document.getElementById('actual-return-date').value);
-        const dueDate = new Date(item.due_date);
-        const delay = Math.ceil((returnDate - dueDate) / (1000 * 60 * 60 * 24));
-        fine = delay > 0 ? delay * 5 : 0;
-    } else {
-        console.warn("No issue record found for fine calculation. Defaulting to $0.");
+    const selectedOption = select.options[select.selectedIndex];
+    let dueDateStr = selectedOption.getAttribute('data-due');
+    
+    if (!dueDateStr) {
+        const { data: book } = await _supabase
+            .from('books')
+            .select('due_date')
+            .eq('serial', serial)
+            .single();
+        dueDateStr = book?.due_date;
     }
+    
+    if (!dueDateStr) {
+        document.getElementById('fine-panel').classList.remove('hidden');
+        document.getElementById('fine-amount').innerHTML = `Fine: $0.00 <span class="text-yellow-500 text-xs">(No due date)</span>`;
+        document.getElementById('fine-paid').checked = true;
+        pendingReturnData = { serial, fine: 0 };
+        return;
+    }
+    
+    const returnDate = new Date(document.getElementById('actual-return-date').value);
+    const dueDate = new Date(dueDateStr);
+    returnDate.setHours(0, 0, 0, 0);
+    dueDate.setHours(0, 0, 0, 0);
+    
+    const delayDays = Math.ceil((returnDate - dueDate) / (1000 * 60 * 60 * 24));
+    const fine = delayDays > 0 ? delayDays * 5 : 0;
     
     pendingReturnData = { serial, fine };
     document.getElementById('fine-panel').classList.remove('hidden');
-    document.getElementById('fine-amount').innerText = `Fine: $${fine}.00`;
+    
+    const fineElement = document.getElementById('fine-amount');
+    if (delayDays > 0) {
+        fineElement.innerHTML = `Fine: $${fine}.00 <span class="text-red-500 text-xs">(${delayDays} days late)</span>`;
+    } else if (delayDays === 0) {
+        fineElement.innerHTML = `Fine: $0.00 <span class="text-green-500 text-xs">(Returned on due date)</span>`;
+    } else {
+        fineElement.innerHTML = `Fine: $0.00 <span class="text-green-500 text-xs">(${Math.abs(delayDays)} days early)</span>`;
+    }
     document.getElementById('fine-paid').checked = fine === 0;
 }
 
 async function processReturn() {
+    if (!pendingReturnData) return alert("Please calculate fine first");
+    
     if (pendingReturnData.fine > 0 && !document.getElementById('fine-paid').checked) {
         return alert("Please confirm fine payment first");
     }
     
-    await _supabase.from('books').update({ issued: false }).eq('serial', pendingReturnData.serial);
-    await _supabase.from('issued_items').delete().eq('serial', pendingReturnData.serial);
+    const { error } = await _supabase
+        .from('books')
+        .update({ issued: false, due_date: null })
+        .eq('serial', pendingReturnData.serial);
     
-    alert("Book Returned!");
+    if (error) {
+        return alert("Failed to process return: " + error.message);
+    }
+    
+    alert(`Item returned!${pendingReturnData.fine > 0 ? ` Fine: $${pendingReturnData.fine}` : ''}`);
+    pendingReturnData = null;
     showSection('search');
 }
