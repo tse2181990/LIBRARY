@@ -261,13 +261,20 @@ async function calculateReturn() {
     if (!serial) return alert("No items to return");
     
     const { data: item } = await _supabase.from('issued_items').select('*').eq('serial', serial).single();
+
+    const { data: item } = await _supabase
+  .from('issued_items')
+  .select('*')
+  .eq('serial', serial)
+  .single();
+
     
     let fine = 0;
     // If record is found, calculate fine. If not, default fine to 0.
     if (item) {
         const returnDate = new Date(document.getElementById('actual-return-date').value);
         const dueDate = new Date(item.due_date);
-        const delay = Math.ceil((returnDate - dueDate) / (1000 * 60 * 60 ));
+        const delay = Math.ceil((returnDate - dueDate) / (1000 * 60 * 60 * 24 ));
         fine = delay > 0 ? delay * 5 : 0;
     } else {
         console.warn("No issue record found for fine calculation. Defaulting to $0.");
