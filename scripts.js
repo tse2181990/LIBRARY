@@ -227,32 +227,48 @@ async function populateIssueSelect() {
     document.getElementById('issue-date').value = defaultDue.toISOString().split('T')[0];
 }
 
-async function handleIssue() {
-    const serial = document.getElementById('issue-book-select').value;
-    if (!serial) return alert("Please select an item to issue");
-    
-    const dueDate = document.getElementById('issue-date').value;
-    if (!dueDate) return alert("Please select a due date");
-    
-    const { data: book, error: bookError } = await _supabase
-        .from('books')
-        .select('title')
-        .eq('serial', serial)
-        .single();
-    
-    if (bookError || !book) return alert("Book not found");
-    
-    // 更新 books 表
-    const { error: updateError } = await _supabase
-        .from('books')
-        .update({ issued: true, due_date: dueDate })
-        .eq('serial', serial);
-    
-    if (updateError) {
-        return alert("Failed to issue item: " + updateError.message);
+async function handleSaveBook() {
+    const title = document.getElementById('add-title').value;
+    const author = document.getElementById('add-author').value;
+    const serial = document.getElementById('add-serial').value;
+    const category = document.getElementById('add-category').value;
+    const isEdit = document.getElementById('edit-index').value !== "-1";
+
+    if (!title || !author || !serial) {
+        return alert("Please fill all fields");
+    }
+
+    if (!isEdit) {
+        // 新增书籍
+        const { error } = await _supabase.from('books').insert([{ 
+            category, 
+            title, 
+            author, 
+            serial, 
+            issued: false 
+        }]);
+        
+        if (error) {
+            if (error.message.includes('duplicate') || error.message.includes('unique')) {
+                return alert("Serial number already exists! Please use a different serial.");
+            }
+            return alert("Error: " + error.message);
+        }
+        alert("Book added successfully!");
+    } else {
+        // 编辑书籍
+        const { error } = await _supabase
+            .from('books')
+            .update({ category, title, author })
+            .eq('serial', serial);
+        
+        if (error) {
+            return alert("Error updating: " + error.message);
+        }
+        alert("Book updated successfully!");
     }
     
-    alert(`Item "${book.title}" issued! Due date: ${dueDate}`);
+    resetBookForm();
     showSection('search');
 }
 
